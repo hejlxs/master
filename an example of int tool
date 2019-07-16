@@ -1,0 +1,1834 @@
+#!/usr/bin/env python
+import wx
+import wx.adv
+import re
+import os
+import sys
+import time
+import psutil
+import threading
+import subprocess
+from threading import Thread
+from wx.lib.pubsub import pub
+import wx.adv
+import wx.propgrid as wxpg
+
+import serial
+import serial.tools.list_ports as comtool
+
+####  self package
+from Device import *
+from Lib import *
+
+
+from six import BytesIO
+from wx.lib.combotreebox import ComboTreeBox
+import wx.lib.platebtn as platebtn
+
+try:
+    dirName = os.path.dirname(os.path.abspath(__file__))
+except:
+    dirName = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+try:
+    from agw import foldpanelbar as fpb
+except ImportError: # if it's not there locally, try the wxPython lib.
+    import wx.lib.agw.foldpanelbar as fpb
+
+threadLock = threading.Lock()
+
+### ====================================
+##  Global var
+### ------------------------------------
+FRAME_WIDTH = 350
+FRAME_HEIGHT = 768
+RED = 245
+GREEN = 248
+BLUE = 248
+
+en_update = True
+en_losschange = False
+loss = cableloss()
+freq = {'DL':1842.5, 'UL':1747.5}
+rfpath = {"DL":0, "UL":0}
+### ====================================
+
+
+def GetCollapsedIconData():
+    return \
+b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x10\x00\x00\x00\x10\x08\x06\
+\x00\x00\x00\x1f\xf3\xffa\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\
+\x00\x01\x8eIDAT8\x8d\xa5\x93-n\xe4@\x10\x85?g\x03\n6lh)\xc4\xd2\x12\xc3\x81\
+\xd6\xa2I\x90\x154\xb9\x81\x8f1G\xc8\x11\x16\x86\xcd\xa0\x99F\xb3A\x91\xa1\
+\xc9J&\x96L"5lX\xcc\x0bl\xf7v\xb2\x7fZ\xa5\x98\xebU\xbdz\xf5\\\x9deW\x9f\xf8\
+H\\\xbfO|{y\x9dT\x15P\x04\x01\x01UPUD\x84\xdb/7YZ\x9f\xa5\n\xce\x97aRU\x8a\
+\xdc`\xacA\x00\x04P\xf0!0\xf6\x81\xa0\xf0p\xff9\xfb\x85\xe0|\x19&T)K\x8b\x18\
+\xf9\xa3\xe4\xbe\xf3\x8c^#\xc9\xd5\n\xa8*\xc5?\x9a\x01\x8a\xd2b\r\x1cN\xc3\
+\x14\t\xce\x97a\xb2F0Ks\xd58\xaa\xc6\xc5\xa6\xf7\xdfya\xe7\xbdR\x13M2\xf9\
+\xf9qKQ\x1fi\xf6-\x00~T\xfac\x1dq#\x82,\xe5q\x05\x91D\xba@\xefj\xba1\xf0\xdc\
+zzW\xcff&\xb8,\x89\xa8@Q\xd6\xaaf\xdfRm,\xee\xb1BDxr#\xae\xf5|\xddo\xd6\xe2H\
+\x18\x15\x84\xa0q@]\xe54\x8d\xa3\xedf\x05M\xe3\xd8Uy\xc4\x15\x8d\xf5\xd7\x8b\
+~\x82\x0fh\x0e"\xb0\xad,\xee\xb8c\xbb\x18\xe7\x8e;6\xa5\x89\x04\xde\xff\x1c\
+\x16\xef\xe0p\xfa>\x19\x11\xca\x8d\x8d\xe0\x93\x1b\x01\xd8m\xf3(;x\xa5\xef=\
+\xb7w\xf3\x1d$\x7f\xc1\xe0\xbd\xa7\xeb\xa0(,"Kc\x12\xc1+\xfd\xe8\tI\xee\xed)\
+\xbf\xbcN\xc1{D\x04k\x05#\x12\xfd\xf2a\xde[\x81\x87\xbb\xdf\x9cr\x1a\x87\xd3\
+0)\xba>\x83\xd5\xb97o\xe0\xaf\x04\xff\x13?\x00\xd2\xfb\xa9`z\xac\x80w\x00\
+\x00\x00\x00IEND\xaeB`\x82'
+
+def GetCollapsedIconBitmap():
+    stream = BytesIO(GetCollapsedIconData())
+    return wx.Bitmap(wx.Image(stream))
+
+#----------------------------------------------------------------------
+def GetExpandedIconData():
+    return \
+b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x10\x00\x00\x00\x10\x08\x06\
+\x00\x00\x00\x1f\xf3\xffa\x00\x00\x00\x04sBIT\x08\x08\x08\x08|\x08d\x88\x00\
+\x00\x01\x9fIDAT8\x8d\x95\x93\xa1\x8e\xdc0\x14EO\xb2\xc4\xd0\xd2\x12\xb7(mI\
+\xa4%V\xd1lQT4[4-\x9a\xfe\xc1\xc2|\xc6\xc2~BY\x83:A3E\xd3\xa0*\xa4\xd2\x90H!\
+\x95\x0c\r\r\x1fK\x81g\xb2\x99\x84\xb4\x0fY\xd6\xbb\xc7\xf7>=\'Iz\xc3\xbcv\
+\xfbn\xb8\x9c\x15 \xe7\xf3\xc7\x0fw\xc9\xbc7\x99\x03\x0e\xfbn0\x99F+\x85R\
+\x80RH\x10\x82\x08\xde\x05\x1ef\x90+\xc0\xe1\xd8\ryn\xd0Z-\\A\xb4\xd2\xf7\
+\x9e\xfbwoF\xc8\x088\x1c\xbbae\xb3\xe8y&\x9a\xdf\xf5\xbd\xe7\xfem\x84\xa4\
+\x97\xccYf\x16\x8d\xdb\xb2a]\xfeX\x18\xc9s\xc3\xe1\x18\xe7\x94\x12cb\xcc\xb5\
+\xfa\xb1l8\xf5\x01\xe7\x84\xc7\xb2Y@\xb2\xcc0\x02\xb4\x9a\x88%\xbe\xdc\xb4\
+\x9e\xb6Zs\xaa74\xadg[6\x88<\xb7]\xc6\x14\x1dL\x86\xe6\x83\xa0\x81\xba\xda\
+\x10\x02x/\xd4\xd5\x06\r\x840!\x9c\x1fM\x92\xf4\x86\x9f\xbf\xfe\x0c\xd6\x9ae\
+\xd6u\x8d \xf4\xf5\x165\x9b\x8f\x04\xe1\xc5\xcb\xdb$\x05\x90\xa97@\x04lQas\
+\xcd*7\x14\xdb\x9aY\xcb\xb8\\\xe9E\x10|\xbc\xf2^\xb0E\x85\xc95_\x9f\n\xaa/\
+\x05\x10\x81\xce\xc9\xa8\xf6><G\xd8\xed\xbbA)X\xd9\x0c\x01\x9a\xc6Q\x14\xd9h\
+[\x04\xda\xd6c\xadFkE\xf0\xc2\xab\xd7\xb7\xc9\x08\x00\xf8\xf6\xbd\x1b\x8cQ\
+\xd8|\xb9\x0f\xd3\x9a\x8a\xc7\x08\x00\x9f?\xdd%\xde\x07\xda\x93\xc3{\x19C\
+\x8a\x9c\x03\x0b8\x17\xe8\x9d\xbf\x02.>\x13\xc0n\xff{PJ\xc5\xfdP\x11""<\xbc\
+\xff\x87\xdf\xf8\xbf\xf5\x17FF\xaf\x8f\x8b\xd3\xe6K\x00\x00\x00\x00IEND\xaeB\
+`\x82'
+
+def GetExpandedIconBitmap():
+    stream = BytesIO(GetExpandedIconData())
+    return wx.Bitmap( wx.Image(stream))
+
+
+
+
+# ----------------------------------------------------------------------------
+# Beginning Of Radio Kit
+# ----------------------------------------------------------------------------
+
+
+class PsuPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 33),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, psu_i=None):
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self._parent = frame_parent
+        self.psu = psu_i
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL)
+
+        ### Volt Curr display
+        init_volt = "0.0"
+        init_curr = "0.0"
+        pos_x = 0
+        h = 32
+        self.text_v = wx.TextCtrl(self, -1, init_volt, pos=(pos_x, 0), size=(70, h),
+                                  style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_v = wx.StaticText(self, -1, "V", pos=(pos_x + 70 + 2, 9), size=(15, h))
+        self.text_c = wx.TextCtrl(self, -1, init_curr, pos=(pos_x + 91, 0), size=(70, h),
+                                  style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_c = wx.StaticText(self, -1, "A", pos=(pos_x + 91 + 70 + 2, 9), size=(15, h))
+        font_text = self.text_v.GetFont()
+        font_text.SetPointSize(16)
+        font_unit = self.unit_v.GetFont()
+        font_unit.SetPointSize(12)
+        self.text_v.SetFont(font_text)
+        self.text_c.SetFont(font_text)
+        self.unit_v.SetFont(font_unit)
+        self.unit_c.SetFont(font_unit)
+        self.text_v.SetBackgroundColour((RED,GREEN,BLUE))
+        self.text_c.SetBackgroundColour((RED,GREEN,BLUE))
+
+
+        # ON OFF Set button
+        pos_x = pos_x + 91
+        button_on = wx.Button(self.subpanel, wx.ID_ANY, "ON", pos=(pos_x + 91, 0), size=(65, h))
+        button_off = wx.Button(self.subpanel, wx.ID_ANY, "OFF", pos=(pos_x + 91 + 65, 0), size=(65, h))
+        button_set = wx.Button(self.subpanel, wx.ID_ANY, "Set", pos=(FRAME_WIDTH - 36, 0), size=(35, h))
+
+        button_on.Bind(wx.EVT_BUTTON, self.PowerOn)
+        button_off.Bind(wx.EVT_BUTTON, self.PowerOff)
+        button_set.Bind(wx.EVT_BUTTON, self.Set)
+
+        ## PSU data
+        self.volt = self.psu.GetSetting()['VOLT']
+        self.curr = self.psu.GetSetting()['CURR']
+
+    def UpdatePower(self, data):
+        self.text_v.SetValue(str(round(data['Volt'], 2)))
+        self.text_c.SetValue(str(round(data['Curr'], 2)))
+
+    def PowerOn(self, event):
+        threadLock.acquire()
+        self.psu.SetON()
+        threadLock.release()
+
+    def PowerOff(self, event):
+        threadLock.acquire()
+        self.psu.SetOFF()
+        threadLock.release()
+
+    def Set(self, event):
+        volt_i = round(self.volt, 1)
+        curr_i = round(self.curr, 1)
+        voltList = [54.5, 48.0, 0.0]
+        currList = [float(i) for i in range(25, 0, -1)]
+
+        if volt_i not in voltList:
+            voltList.append(volt_i)
+        voltList.sort(reverse=True)
+
+        if curr_i not in currList:
+            currList.append(curr_i)
+        currList.sort(reverse=True)
+
+        ### Dialog
+        dlg = wx.Dialog(self, -1, "PSU Setting", pos=(self._parent.GetPosition().x + 368, self._parent.GetPosition().y),
+                        size=(250, 130), style=wx.DEFAULT_DIALOG_STYLE)
+
+        dlg.SetBackgroundColour((RED,GREEN,BLUE))
+
+        ex_v = wx.StaticText(dlg, -1, "Set Voltage:", pos=(18, 10), size=(100, -1))
+        input_v = wx.ComboBox(dlg, -1, str(volt_i), (18, 30), (70, -1), [str(i) for i in voltList], wx.CB_DROPDOWN)
+        unit_v = wx.StaticText(dlg, -1, "V", pos=(94, 34), size=(15, -1))
+        input_v.SetSelection(input_v.FindString(str(volt_i)))
+
+        ex_c = wx.StaticText(dlg, -1, "Set Current Limit:", pos=(130, 10), size=(100, -1))
+        input_c = wx.ComboBox(dlg, -1, str(curr_i), (135, 30), (70, -1), [str(i) for i in currList], wx.CB_DROPDOWN)
+        unit_c = wx.StaticText(dlg, -1, "A", pos=(210, 34), size=(15, -1))
+        input_c.SetSelection(input_c.FindString(str(curr_i)))
+
+        btn_ok = wx.Button(dlg, wx.ID_OK, pos=(15, 60))
+        btn_cancel = wx.Button(dlg, wx.ID_CANCEL, pos=(135, 60))
+        btn_ok.SetDefault()
+
+        val = dlg.ShowModal()
+
+        if val == wx.ID_OK:
+            try:
+                self.volt = float(input_v.GetValue())
+                self.curr = float(input_c.GetValue())
+                threadLock.acquire()
+                self.psu.SetVoltCurr(self.volt, self.curr)
+                threadLock.release()
+            except ValueError:
+                err = wx.MessageDialog(self, 'Please input numeric correctly!',
+                                       'Input Type Error:',
+                                       wx.OK | wx.ICON_INFORMATION
+                                       )
+                err.ShowModal()
+                err.Destroy()
+
+        else:
+            pass
+
+        dlg.Destroy()
+
+
+
+class SwPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 25),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, sw_i=None):
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self._parent = frame_parent
+        self.sw = sw_i
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL)
+
+        ### Volt Curr display
+        SW_LIST = self.sw.list
+        self.choice = wx.Choice(self.subpanel, wx.ID_ANY, (5,-1), (FRAME_WIDTH-12, -1), SW_LIST, 0)
+        self.choice.SetSelection(0)
+        self.choice.Bind(wx.EVT_CHOICE, self.EvtSet)
+
+
+
+    def EvtSet(self, event):
+        self.sw.SetPath(event.GetString())
+        global freq
+        global loss
+        global rfpath
+        rfpath = self.sw.GetPath()
+
+
+
+class PmPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 30),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, pm_i=None, index = 0):
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self._parent = frame_parent
+        self.pm = pm_i
+        self.text = []
+
+        self.index = ["PM"+str(index+1+i) for i in range(self.pm.GetSensors())]
+
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL)
+        h = 29
+        w_value = 64
+        w_unit = 15
+        pos_x = 0
+
+        # ----Branch A
+        self.text_A = wx.TextCtrl  (self, -1, "--", pos=(pos_x, 0),       size=(w_value, h), style=wx.TE_READONLY | wx.TE_RIGHT)
+        self.br_A   = wx.TextCtrl  (self, -1, "A",     pos=(pos_x + w_value-1, 0), size=(w_unit, w_unit),style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_A = wx.StaticText(self, -1, "dBm",   pos=(pos_x + w_value,  15), size=(w_unit, h))
+        pos_x = pos_x + w_value + w_unit + 8
+        self.text.append(self.text_A)
+
+        # ----Branch B
+        self.text_B = wx.TextCtrl  (self, -1, "--", pos=(pos_x, 0),       size=(w_value, h), style=wx.TE_READONLY | wx.TE_RIGHT)
+        self.br_B   = wx.TextCtrl  (self, -1, "B",     pos=(pos_x + w_value-1, 0), size=(w_unit, w_unit),style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_B = wx.StaticText(self, -1, "dBm",   pos=(pos_x + w_value,  15), size=(w_unit, h))
+        pos_x = pos_x + w_value + w_unit + 8
+        self.text.append(self.text_B)
+
+        # ----Branch C
+        self.text_C = wx.TextCtrl  (self, -1, "--", pos=(pos_x, 0),       size=(w_value, h), style=wx.TE_READONLY | wx.TE_RIGHT)
+        self.br_C   = wx.TextCtrl  (self, -1, "C",     pos=(pos_x + w_value-1, 0), size=(w_unit, w_unit),style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_C = wx.StaticText(self, -1, "dBm",   pos=(pos_x + w_value,  15), size=(w_unit, h))
+        pos_x = pos_x + w_value + w_unit + 8
+        self.text.append(self.text_C)
+
+        # ----Branch D
+        self.text_D = wx.TextCtrl  (self, -1, "--", pos=(pos_x, 0),       size=(w_value, h), style=wx.TE_READONLY | wx.TE_RIGHT)
+        self.br_D   = wx.TextCtrl  (self, -1, "D",     pos=(pos_x + w_value-1, 0), size=(w_unit, w_unit),style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_D = wx.StaticText(self, -1, "dBm",   pos=(pos_x + w_value,  15), size=(w_unit, h))
+        pos_x = pos_x + w_value + w_unit + 8
+        self.text.append(self.text_D)
+
+        # get font
+        font_text = self.text_A.GetFont()
+        font_text.SetPointSize(14)
+        font_unit = self.unit_A.GetFont()
+        font_unit.SetPointSize(8)
+        font_br = self.br_A.GetFont()
+        font_br.SetPointSize(7)
+
+        # set font
+        self.text_A.SetFont(font_text)
+        self.unit_A.SetFont(font_unit)
+        self.br_A.SetFont(font_br)
+        self.text_B.SetFont(font_text)
+        self.unit_B.SetFont(font_unit)
+        self.br_B.SetFont(font_br)
+        self.text_C.SetFont(font_text)
+        self.unit_C.SetFont(font_unit)
+        self.br_C.SetFont(font_br)
+        self.text_D.SetFont(font_text)
+        self.unit_D.SetFont(font_unit)
+        self.br_D.SetFont(font_br)
+
+        # set color
+        self.text_A.SetBackgroundColour((RED,GREEN,BLUE))
+        self.unit_A.SetBackgroundColour((RED,GREEN,BLUE))
+        self.br_A.SetBackgroundColour((RED,GREEN,BLUE))
+        self.text_B.SetBackgroundColour((RED,GREEN,BLUE))
+        self.unit_B.SetBackgroundColour((RED,GREEN,BLUE))
+        self.br_B.SetBackgroundColour((RED,GREEN,BLUE))
+        self.text_C.SetBackgroundColour((RED,GREEN,BLUE))
+        self.unit_C.SetBackgroundColour((RED,GREEN,BLUE))
+        self.br_C.SetBackgroundColour((RED,GREEN,BLUE))
+        self.text_D.SetBackgroundColour((RED,GREEN,BLUE))
+        self.unit_D.SetBackgroundColour((RED,GREEN,BLUE))
+        self.br_D.SetBackgroundColour((RED,GREEN,BLUE))
+
+        # init value
+        self.sensors = self.pm.GetSensors()
+        self.pm.SetFilter(6)
+
+
+    def UpdatePower(self, data, pmloss):
+        global loss
+        global freq
+        global rfpath
+        global en_losschange
+        for i in range(self.sensors):
+            ploss = abs(loss.getloss(freq, rfpath)[self.index[i]])
+            self.power = round(data[i] - pmloss[i] + ploss,  2)
+            self.text[i].SetValue(str(self.power))
+            if en_losschange:
+                self.pm.SetCorrection(i+1, freq['DL'], ploss)
+        en_losschange = False
+
+
+
+
+class SaPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 28),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, sa_i=None, index = 0):
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self._parent = frame_parent
+        self.sa = sa_i
+        self.index = ["SA"+str(index+1)]
+
+        self.dirSAscript = dirName+'\\Scripts\\DeviceCtrl\\SA'
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL )
+
+        ### Volt Curr display
+        #name = wx.StaticText(self.subpanel, -1, "Script:",   pos=(5, 5), size=(40, -1))
+        name_btn = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "Scripts:", None, pos=(0, 3), size=(50, -1),style=platebtn.PB_STYLE_DEFAULT)
+        name_btn.SetBackgroundColour((RED,GREEN,BLUE))
+
+        self.list = ComboTreeBox(self.subpanel, wx.ID_ANY, pos=(50,2), size=(round(FRAME_WIDTH-100-5), -1), style=wx.CB_READONLY|wx.CB_DROPDOWN|wx.TE_PROCESS_ENTER)
+
+        btn_run = wx.Button(self.subpanel, wx.ID_ANY, "Run", pos=(FRAME_WIDTH-50, 1), size=(45, -1))
+
+        self.UpdateTree()
+
+
+        #self.Bind(wx.EVT_COMBOBOX, self.EvtSet, self.list)
+        self.Bind(wx.EVT_BUTTON, self.EvtUpdate, name_btn)
+        self.Bind(wx.EVT_BUTTON, self.EvtRun, btn_run)
+
+    def EvtUpdate(self, event):
+        self.list.Clear()
+        a = self.list.Append("SA")
+        self.UpdateTree()
+
+    def EvtRun(self, event):
+        i = self.list.GetSelection()
+        if i in self.item_in:
+            path = self.dirSAscript+self.item_in[i]
+            p = InstrThread(path, ['SA', self.sa.addr])
+
+
+
+    def UpdateTree(self):
+        self.items = {}
+        self.item_in = {}
+        default_item = None
+        for dirpath, folders, files in os.walk(self.dirSAscript+'\\'):
+            for ifile in files:
+                if ifile.endswith('.py'):
+                    foldlist = dirpath.replace(self.dirSAscript+'\\', '').split("\\")
+                    pare = ''
+                    full = ''
+                    if foldlist == ['']:
+                        a = self.list.Append(ifile)
+                        self.item_in[a] = full+"\\"+ifile
+                        if "Screen" in ifile:
+                            default_item = a
+                    else:
+                        for item in foldlist:
+                            full = full + "\\" + item
+                            if full in self.items:
+                                pare = self.items[full]
+                            else:
+                                if pare == '':
+                                    pare = self.list.Append(item)
+                                else:
+                                    pare = self.list.Append(item, pare)
+                                self.items[full] = pare
+                            a = self.list.Append(ifile, pare)
+                            self.item_in[a] = full+"\\"+ifile
+        if default_item != None:
+            self.list.SetSelection(default_item)
+
+
+class SgPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 30+30),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, sg_i=None, index = 0):
+        self._parent = frame_parent
+        self.sg = sg_i
+        self.index = ["SG" + str(index + 1 + i) for i in range(self.sg.GetPorts())]
+
+        if self.sg.GetPorts() == 2:
+            dualPort = True
+            size = (FRAME_WIDTH, 30 + 30 + 28)
+        else:
+            dualPort = False
+
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self.dirSGscript = dirName+'\\Scripts\\DeviceCtrl\\SG'
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL )
+
+
+        pos_y = 2
+        #****************************************
+        w_value = 80
+        pos_x = 0
+        self.freq_t1 = wx.StaticText(self, -1, "Freq:", pos=( pos_x, pos_y+3), size=(28, 18))
+        self.freq_1 = wx.TextCtrl(self.subpanel, -1, "1000.0", pos=(pos_x + 28, pos_y), size=(80, -1), style= wx.TE_RIGHT|wx.TE_PROCESS_ENTER, name='1')
+        self.unit_f1 = wx.TextCtrl(self.subpanel, -1, "MHz", pos=(pos_x + 28 + w_value-1 , pos_y), size=(30, 23),
+                                style=wx.TE_READONLY | wx.TE_CENTRE)
+        font_unit = self.unit_f1.GetFont()
+        font_unit.SetPointSize(8)
+        self.unit_f1.SetFont(font_unit)
+        self.freq_t1.SetBackgroundColour((RED, GREEN, BLUE))
+        self.unit_f1.SetBackgroundColour((RED, GREEN, BLUE))
+
+        pos_x = 28 + w_value + 30
+        w_value = 40
+        self.pow_t1 = wx.StaticText(self, -1, "Lev:", pos=( pos_x+5, pos_y+3), size=(22, 18))
+        self.pow_1 = wx.TextCtrl(self.subpanel, -1, "-60.0", pos=(pos_x + 28, pos_y), size=(w_value, -1), style= wx.TE_RIGHT|wx.TE_PROCESS_ENTER, name='1')
+        self.unit_p1 = wx.TextCtrl(self.subpanel, -1, "dBm", pos=(pos_x + 28 + w_value-1 , pos_y), size=(30, 23),
+                                style=wx.TE_READONLY | wx.TE_CENTRE)
+        self.unit_p1.SetFont(font_unit)
+        self.pow_t1.SetBackgroundColour((RED, GREEN, BLUE))
+        self.unit_p1.SetBackgroundColour((RED, GREEN, BLUE))
+
+        self.btn_Mod1 = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "MOD/OFF", None, pos=(pos_x+w_value+57, pos_y), size=(64, -1),
+                                      style=platebtn.PB_STYLE_TOGGLE | platebtn.PB_STYLE_DEFAULT, name='1')
+        self.btn_Mod1.SetBackgroundColour((RED-10, GREEN-10, BLUE-10))
+
+        self.btn_RF1 = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "RF/OFF", None, pos=(pos_x+w_value+57+64, pos_y), size=(50, -1),
+                                      style=platebtn.PB_STYLE_TOGGLE | platebtn.PB_STYLE_DEFAULT, name='1')
+        self.btn_RF1.SetBackgroundColour((RED-20, GREEN-20, BLUE-20))
+
+        self.freq_1.Bind(wx.EVT_TEXT_ENTER, self.SetFreq)
+        self.pow_1.Bind(wx.EVT_TEXT_ENTER, self.SetPower)
+        self.btn_RF1.Bind(wx.EVT_TOGGLEBUTTON, self.RF_ON)
+        self.btn_Mod1.Bind(wx.EVT_TOGGLEBUTTON, self.RF_MOD)
+
+        pos_y = 32
+        # ****************************************
+        if dualPort:
+            # ****************************************
+            w_value = 80
+            pos_x = 0
+            pos_y = pos_y - 3
+            self.freq_t2 = wx.StaticText(self, -1, "Freq:", pos=(pos_x, pos_y + 3), size=(28, 18))
+            self.freq_2 = wx.TextCtrl(self.subpanel, -1, "1000.0", pos=(pos_x + 28, pos_y), size=(80, -1),
+                                      style=wx.TE_RIGHT|wx.TE_PROCESS_ENTER, name='2')
+            self.unit_f2 = wx.TextCtrl(self.subpanel, -1, "MHz", pos=(pos_x + 28 + w_value - 1, pos_y), size=(30, 23),
+                                       style=wx.TE_READONLY | wx.TE_CENTRE)
+            self.unit_f2.SetFont(font_unit)
+            self.freq_t2.SetBackgroundColour((RED, GREEN, BLUE))
+            self.unit_f2.SetBackgroundColour((RED, GREEN, BLUE))
+
+            pos_x = 28 + w_value + 30
+            w_value = 40
+
+            self.pow_t2 = wx.StaticText(self, -1, "Lev:", pos=(pos_x + 5, pos_y + 3), size=(22, 18))
+            self.pow_2 = wx.TextCtrl(self.subpanel, -1, "-60.0", pos=(pos_x + 28, pos_y), size=(w_value, -1),
+                                     style=wx.TE_RIGHT|wx.TE_PROCESS_ENTER, name='2')
+            self.unit_p2 = wx.TextCtrl(self.subpanel, -1, "dBm", pos=(pos_x + 28 + w_value - 1, pos_y), size=(30, 23),
+                                       style=wx.TE_READONLY | wx.TE_CENTRE)
+            self.unit_p2.SetFont(font_unit)
+            self.pow_t2.SetBackgroundColour((RED, GREEN, BLUE))
+            self.unit_p2.SetBackgroundColour((RED, GREEN, BLUE))
+
+            self.btn_Mod2 = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "MOD/OFF", None,
+                                            pos=(pos_x + w_value + 57, pos_y), size=(64, -1),
+                                            style=platebtn.PB_STYLE_TOGGLE | platebtn.PB_STYLE_DEFAULT, name='2')
+            self.btn_Mod2.SetBackgroundColour((RED - 10, GREEN - 10, BLUE - 10))
+
+            self.btn_RF2 = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "RF/OFF", None,
+                                           pos=(pos_x + w_value + 57 + 64, pos_y), size=(50, -1),
+                                           style=platebtn.PB_STYLE_TOGGLE | platebtn.PB_STYLE_DEFAULT, name='2')
+            self.btn_RF2.SetBackgroundColour((RED - 20, GREEN - 20, BLUE - 20))
+
+            self.freq_2.Bind(wx.EVT_TEXT_ENTER, self.SetFreq)
+            self.pow_2.Bind(wx.EVT_TEXT_ENTER, self.SetPower)
+            self.btn_RF2.Bind(wx.EVT_TOGGLEBUTTON, self.RF_ON)
+            self.btn_Mod2.Bind(wx.EVT_TOGGLEBUTTON, self.RF_MOD)
+            pos_y = 60
+            # ****************************************
+
+
+        ######################################
+
+        wx.StaticLine(self.subpanel, -1, pos=(-1, pos_y-4), size=(FRAME_WIDTH, -1), style= wx.LI_HORIZONTAL)
+
+        ## choice script
+        name_btn = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "Scripts:", None, pos=(0, pos_y+2), size=(50, -1),style=platebtn.PB_STYLE_DEFAULT)
+        name_btn.SetBackgroundColour((RED,GREEN,BLUE))
+
+        self.list = ComboTreeBox(self.subpanel, wx.ID_ANY, pos=(50, pos_y+2), size=(round(FRAME_WIDTH-100-5), -1), style=wx.CB_READONLY|wx.CB_DROPDOWN|wx.TE_PROCESS_ENTER)
+
+        btn_run = wx.Button(self.subpanel, wx.ID_ANY, "Run", pos=(FRAME_WIDTH-50, pos_y), size=(45, -1))
+
+        self.UpdateTree()
+
+
+        self.Bind(wx.EVT_BUTTON, self.EvtUpdate, name_btn)
+        self.Bind(wx.EVT_BUTTON, self.EvtRun, btn_run)
+
+
+
+
+
+
+    def RF_ON(self, evt):
+        if evt.GetEventObject().IsPressed():
+            evt.GetEventObject().LabelText = "RF/ON"
+            self.sg.SetOutPut('ON', int(evt.GetEventObject().GetName()))
+        else:
+            evt.GetEventObject().LabelText = "RF/OFF"
+            self.sg.SetOutPut('OFF', int(evt.GetEventObject().GetName()))
+
+    def RF_MOD(self, evt):
+        if evt.GetEventObject().IsPressed():
+            evt.GetEventObject().LabelText="MOD/ON"
+            self.sg.SetModState('ON', int(evt.GetEventObject().GetName()))
+        else:
+            evt.GetEventObject().LabelText = "MOD/OFF"
+            self.sg.SetModState('OFF', int(evt.GetEventObject().GetName()))
+
+    def SetFreq(self, evt):
+        try:
+            freq = abs(float(evt.GetString()))
+            self.sg.SetFreq(freq, int(evt.GetEventObject().GetName()))
+        except:
+            freq = "-inf-"
+
+
+    def SetPower(self, evt):
+        try:
+            port = int(evt.GetEventObject().GetName())
+            pow = float(evt.GetString()) + abs(loss.getloss(freq, rfpath)[self.index[port-1]])
+            self.sg.SetAmplitude(pow, port)
+        except:
+            pow = "-inf-"
+
+
+    def EvtUpdate(self, event):
+        self.list.Clear()
+        a = self.list.Append("SG")
+        self.UpdateTree()
+
+    def EvtRun(self, event):
+        i = self.list.GetSelection()
+        if i in self.item_in:
+            path = self.dirSGscript+self.item_in[i]
+            p = InstrThread(path, ['SG', self.sg.addr])
+
+
+    def UpdateTree(self):
+        self.items = {}
+        self.item_in = {}
+        default_item = None
+        for dirpath, folders, files in os.walk(self.dirSGscript+'\\'):
+            for ifile in files:
+                if ifile.endswith('.py'):
+                    foldlist = dirpath.replace(self.dirSGscript + '\\', '').split("\\")
+                    pare = ''
+                    full = ''
+                    if foldlist == ['']:
+                        a = self.list.Append(ifile)
+                        self.item_in[a] = full+"\\"+ifile
+                        if "Preset" in ifile:
+                            default_item = a
+                    else:
+                        for item in foldlist:
+                            full = full + "\\" + item
+                            if full in self.items:
+                                pare = self.items[full]
+                            else:
+                                if pare == '':
+                                    pare = self.list.Append(item)
+                                else:
+                                    pare = self.list.Append(item, pare)
+                                self.items[full] = pare
+                        a = self.list.Append(ifile, pare)
+                        self.item_in[a] = full+"\\"+ifile
+        if default_item != None:
+            self.list.SetSelection(default_item)
+
+
+
+class OscPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 28),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, osc_i=None, index=0):
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self._parent = frame_parent
+        self.osc = osc_i
+        self.index = ["Osc" + str(index + 1)]
+
+        self.dirSAscript = dirName + '\\Scripts\\DeviceCtrl\\OSC'
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL)
+
+        ### Volt Curr display
+        # name = wx.StaticText(self.subpanel, -1, "Script:",   pos=(5, 5), size=(40, -1))
+        name_btn = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "Scripts:", None, pos=(0, 3), size=(50, -1),
+                                        style=platebtn.PB_STYLE_DEFAULT)
+        name_btn.SetBackgroundColour((RED, GREEN, BLUE))
+
+        self.list = ComboTreeBox(self.subpanel, wx.ID_ANY, pos=(50, 2), size=(round(FRAME_WIDTH - 100 - 5), -1),
+                                 style=wx.CB_READONLY | wx.CB_DROPDOWN | wx.TE_PROCESS_ENTER)
+
+        btn_run = wx.Button(self.subpanel, wx.ID_ANY, "Run", pos=(FRAME_WIDTH - 50, 1), size=(45, -1))
+
+        self.UpdateTree()
+
+        # self.Bind(wx.EVT_COMBOBOX, self.EvtSet, self.list)
+        self.Bind(wx.EVT_BUTTON, self.EvtUpdate, name_btn)
+        self.Bind(wx.EVT_BUTTON, self.EvtRun, btn_run)
+
+    def EvtUpdate(self, event):
+        self.list.Clear()
+        a = self.list.Append("OSC")
+        self.UpdateTree()
+
+    def EvtRun(self, event):
+        i = self.list.GetSelection()
+        if i in self.item_in:
+            path = self.dirSAscript + self.item_in[i]
+            p = InstrThread(path, ['OSC', self.osc.addr])
+
+    def UpdateTree(self):
+        self.items = {}
+        self.item_in = {}
+        default_item = None
+        for dirpath, folders, files in os.walk(self.dirSAscript + '\\'):
+            for ifile in files:
+                if ifile.endswith('.py'):
+                    foldlist = dirpath.replace(self.dirSAscript + '\\', '').split("\\")
+                    pare = ''
+                    full = ''
+                    if foldlist == ['']:
+                        a = self.list.Append(ifile)
+                        self.item_in[a] = full + "\\" + ifile
+                        if "Screen" in ifile:
+                            default_item = a
+                    else:
+                        for item in foldlist:
+                            full = full + "\\" + item
+                            if full in self.items:
+                                pare = self.items[full]
+                            else:
+                                if pare == '':
+                                    pare = self.list.Append(item)
+                                else:
+                                    pare = self.list.Append(item, pare)
+                                self.items[full] = pare
+                            a = self.list.Append(ifile, pare)
+                            self.item_in[a] = full + "\\" + ifile
+        if default_item != None:
+            self.list.SetSelection(default_item)
+
+
+
+class AutoPanel(wx.Panel):
+    def __init__(self, parent, id, pos=wx.DefaultPosition, size=(FRAME_WIDTH, 800),
+                 style=wx.NO_BORDER | wx.TAB_TRAVERSAL, frame_parent=None, inst=None):
+        wx.Panel.__init__(self, parent, id, pos, size, style)
+        self._parent = frame_parent
+        self.script = None
+        self.inst = []
+
+        self.ru = None
+        self.ruport = ''
+        self.app = {'app': [' ', ' ', ' ', ' '], 'use': -1}
+
+        self.rumaport = ["RUMA", "0"]
+        self.cprirate = ""
+
+        self.platform = ''
+        self.branchs = 2
+
+        self.band = '3'
+        self.freqdef = frequency()
+        self.freqdef.load()
+        self.bandlimit = self.freqdef.getlimit(self.band)
+        self.bandlist = list(self.freqdef.bands)
+
+
+
+
+
+
+        for (k, v) in inst.items():
+            self.inst = self.inst + [k] + v
+        self.dirscript = dirName + '\\Scripts\\Function'
+
+        ##------------------------------------------------------------------------------------------------
+        # start RRU and RUMA
+        ##------------------------------------------------------------------------------------------------
+        self.dev = mgr()
+        self.comports = [list(i)[0] for i in comtool.comports()]
+
+        self.ruma = self.dev.getRUMA()
+        if self.ruma:
+            self.ruma.init(cpriPort=self.rumaport[1], ref='EXT')
+            self.cprirate = self.ruma.GetLineRate(self.rumaport[1])
+
+            self.comports += ['COM10','COM11','COM12','COM13']
+            i = 1
+            if self.ruma.GetAlarm() == 0:
+                while i <= len(self.comports):
+                    try:
+                        if int(self.comports[-i].strip('COM')) >= 10 and int(self.comports[-i].strip('COM')) <= 13:
+                            self.ruma.CreateCpriComPort(self.comports[-i])
+                        self.ru = self.dev.getRRU(self.comports[-i])
+                        self.ruport = self.comports[-i]
+                        break
+                    except serial.SerialException:
+                        if i == len(self.comports):
+                            print ("Please release a COM port！")
+                            self.ruport = ""
+                            self.ru = None
+                        i = i+1
+                        continue
+            else:
+                print("Please Check CT10 ！")
+
+        self.comports.append("Close")
+
+        if self.ru != None:
+            self.app = self.ru.getapp()
+        #.................................................................................................
+        ##************************************************************************************************
+
+        self.subpanel = wx.Panel(self, wx.ID_ANY, wx.DefaultPosition, size, wx.NO_BORDER | wx.TAB_TRAVERSAL)
+
+
+        ### Auto script run GUI  ----------------------------------------------------------------------------
+        name_btn = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "Scripts:", None, pos=(0, 3), size=(50, -1),
+                                        style=platebtn.PB_STYLE_DEFAULT)
+        name_btn.SetBackgroundColour((RED, GREEN, BLUE))
+
+        self.list = ComboTreeBox(self.subpanel, wx.ID_ANY, pos=(50, 2), size=(round(FRAME_WIDTH - 100 - 52), -1),
+                                 style=wx.CB_READONLY | wx.CB_DROPDOWN | wx.TE_PROCESS_ENTER)
+
+        self.btn_run = wx.Button(self.subpanel, wx.ID_ANY, "Start", pos=(FRAME_WIDTH - 50-50, 1), size=(60, -1))
+        self.btn_stop = wx.Button(self.subpanel, wx.ID_ANY, "Stop", pos=(FRAME_WIDTH - 40, 1), size=(38, -1))
+        self.btn_stop.Disable()
+        self.UpdateTree()
+
+        self.Bind(wx.EVT_BUTTON, self.EvtUpdate, name_btn)
+        self.Bind(wx.EVT_BUTTON, self.EvtRun, self.btn_run)
+        self.Bind(wx.EVT_BUTTON, self.EvtStop, self.btn_stop)
+
+        ### *********************************************************************************************************
+
+        wx.StaticLine(self.subpanel, -1, pos=(-1, 30), size=(FRAME_WIDTH, -1), style=wx.LI_HORIZONTAL)
+
+        pos_y = 30
+        ### Contorl and Setup Carrier
+        #pis = wx.ComboBox(self.subpanel, -1, 'CXP9013268%15_R70JE', (-1, 35), (145, -1), ["CXP901096%17_R67HU", "CXP9017316%7_R70JB", "CXP9013268%15_R70JE", "" ],wx.CB_READONLY | wx.CB_DROPDOWN)
+
+
+        ##------------------------------------------------------------------------------------------------
+        # RRU & RUMA control panel
+        ##------------------------------------------------------------------------------------------------
+
+        sb = wx.StaticBox(self, -1, "Radio", (0, pos_y + 3), (152, 73)  )
+
+        self.pis_btn = platebtn.PlateButton(self.subpanel, wx.ID_ANY, "--> to PIS restart", None, pos=(1, pos_y + 3+18 ), size=(150, -1),
+                                        style=platebtn.PB_STYLE_DROPARROW)
+        self.pis_btn.SetBackgroundColour((RED, GREEN, BLUE))
+        self.pis_btn.Bind(platebtn.EVT_PLATEBTN_DROPARROW_PRESSED, self.OnDropPis)
+        self.pis_btn.Bind(wx.EVT_BUTTON, self.RestartApp)
+        if self.app['use'] > -1:
+            self.pis_btn.SetLabel(self.app['app'][self.app['use']])
+        self.pis_btn.Enable(True)
+
+        labelcom = wx.StaticText(self.subpanel, -1, "Port:", pos= (5, pos_y + 52), size=(40, -1))
+        #com = wx.Choice(self.subpanel, -1, (65, pos_y + 48), (82, -1), self.comports, 0)
+        self.com = wx.ComboBox(self.subpanel, -1, self.ruport, (45, pos_y + 48), (100, -1), self.comports, wx.CB_DROPDOWN|wx.TE_PROCESS_ENTER)
+
+        self.com.SetSelection(self.com.FindString(self.ruport))
+        self.com.Bind(wx.EVT_COMBOBOX, self.ChociePort)
+        self.com.Bind(wx.EVT_TEXT_ENTER, self.EnterPort)
+
+
+
+
+        ### box 2
+        sb = wx.StaticBox(self, -1, "Cpri", (153, pos_y + 3), (92, 73))
+        labelcpri = wx.StaticText(self.subpanel, -1, "Rate:", pos=(157, pos_y + 3 + 20 +4), size=(25, -1))
+        chociecpri = wx.Choice(self.subpanel, -1, (185, pos_y + 3 +20), (55, -1), ["2.5G", "4.9G", "9.8G", "10.1G"], 0)
+        labelport = wx.StaticText(self.subpanel, -1, "Port:", pos=(157, pos_y + 3 + 20 +25 + 4), size=(25, -1))
+        choicerumaport = wx.Choice(self.subpanel, -1, (185, pos_y + 3 +20+25), (55, -1), ["1A", "1B"], 0)
+        chociecpri.Bind(wx.EVT_CHOICE, self.ChocieCpri)
+        choicerumaport.Bind(wx.EVT_CHOICE, self.ChocieRumaport)
+        if self.cprirate != "":
+            chociecpri.SetStringSelection(self.cprirate)
+
+        ### box 3
+        sb = wx.StaticBox(self, -1, "Platform", (246, pos_y + 3), (104, 73))
+        labelplat = wx.StaticText(self.subpanel, -1, "Plat:", pos=(250, pos_y + 3 + 20 +4), size=(25, -1))
+        choiceplat = wx.Choice(self.subpanel, -1, (282, pos_y + 3 +20), (63, -1), ["2212", "4415", "4418", "AAS6488"], 0)
+        labelband = wx.StaticText(self.subpanel, -1, "Band:", pos=(250, pos_y + 3 + 20 +25 + 4), size=(29, -1))
+        choiceband = wx.Choice(self.subpanel, -1, (282, pos_y + 3 +20+25), (63, -1), self.bandlist, 0)
+        choiceplat.Bind(wx.EVT_CHOICE, self.ChociePlatform)
+        choiceband.Bind(wx.EVT_CHOICE, self.ChocieBand)
+
+
+        ### Message for script stop
+        pub.subscribe(self.ScriptDone, "ScriptDone")
+
+
+        ##================================================================================
+        #  Carrier List
+        ##--------------------------------------------------------------------------------
+        self.CarrierInit()
+
+        ##================================================================================
+
+    def OnDropPis(self, event):
+        try:
+            pos = self.pis_btn.ClientToScreen((0,0))
+            if self.ru != None:
+                self.app = self.ru.getapp()
+            apps = [ str(1*(self.app['use']==i)) + ' | ' + self.app['app'][i] for i in range(len(self.app['app']))]
+            dlg = wx.SingleChoiceDialog(self.subpanel, 'restart PIS:', '', apps,
+                    style = wx.OK|wx.CANCEL, pos = (pos.x, pos.y+20) )
+            dlg.SetBackgroundColour((RED,GREEN,BLUE))
+
+            val = dlg.ShowModal()
+            if val == wx.ID_OK:
+                if self.ru != None:
+                    self.app['use'] = dlg.GetSelection()
+                    self.ru.restart(self.app['use'])
+            else:
+                pass
+            dlg.Destroy()
+            self.pis_btn.SetLabel(self.app['app'][self.app['use']])
+        except:
+            print("Maybe SW is restarting")
+
+    def RestartApp(self,event):
+        if self.app['use'] > -1:
+            if self.ru:
+                self.ru.restart(self.app['use'])
+            self.pis_btn.SetLabel(self.app['app'][self.app['use']])
+
+
+
+    def CreatePort(self, port_addr = '', platform = ''):
+        if not(self.ruport == port_addr and self.ru and platform == self.platform):
+            # case 1. close ru port
+            if self.ru:
+                self.ru.close()
+                self.ru = None
+
+            # case 3. set comport
+            self.ruport = port_addr
+            self.platform = platform
+
+            # case 4. if ru port addr is IP, and platform is AAS
+            if '.' in port_addr and 'AAS' in self.platform:
+                self.ru = self.dev.getRRU(port_addr, self.platform)
+                if not self.ru:
+                    print("Please Check IP connection")
+
+            # case 5. RU port is COM,  virtual COM or real COM
+            elif 'COM' in port_addr:
+                try:
+                    if int(port_addr.strip('COM')) >= 10 and int(port_addr.strip('COM')) <= 13:
+                        self.ruma.CreateCpriComPort(port_addr, self.rumaport[1])
+                    if self.platform:
+                        self.ru = self.dev.getRRU(port_addr, self.platform)
+                        # add IP address to comport box
+                        if not self.ru:
+                            print("Please Check COM Port")
+
+                except serial.SerialException:
+                        print ("Please Check CT10 Virtual COM port")
+                        #self.ruport = ""
+                        #self.ru = None
+
+            if self.ru:
+                ruip = self.ru.getIP()
+                if ruip and ruip not in self.comports:
+                    self.comports.append(ruip)
+                    self.com.AppendItems(ruip)
+
+
+
+    def EnterPort(self, evt):
+        port = evt.GetString()
+        self.ChociePort(evt)
+        if self.ru and port not in self.comports:
+            self.comports.append(port)
+            self.com.AppendItems(port)
+
+    def ChociePort(self, evt):
+        # case 1. if close, clear comport
+        if evt.GetString() == 'Close':
+            self.ruport = ""
+            # case 1. close ru port
+            if self.ru:
+                self.ru.close()
+                self.ru = None
+        else:
+            self.CreatePort(evt.GetString(), self.platform)
+
+
+    def ChocieCpri(self, evt):
+        if self.cprirate != evt.GetString():
+            if self.ruma:
+                self.ruma.ChangeCpriLineRate(evt.GetString())
+            self.cprirate = evt.GetString()
+
+    def ChocieRumaport(self, evt):
+        self.rumaport[1] = evt.GetString()
+
+
+    def ChociePlatform(self, evt):
+        if self.platform != evt.GetString():
+            platform = evt.GetString()
+            if re.match('22\d\d', platform) != None:
+                self.branchs = 2
+            elif re.match('44\d\d', platform) != None:
+                self.branchs = 4
+
+            self.carrItemDefault["EnumBr"] = ["A", [chr(65+b) for b in range(self.branchs)]]
+            #self.carrItemCopy["EnumBr"] = ["A", [chr(65+b) for b in range(self.branchs)]]
+            self.carrItemDefault["EnumBr"][1] += [str(self.carrItemDefault["EnumBr"][1]).strip("[\'").strip("\']").replace("\', \'", "")]
+            #self.carrItemCopy["EnumBr"][1] += [str(self.carrItemCopy["EnumBr"][1]).strip("[\'").strip("\']").replace("\', \'", "")]
+
+
+            if self.com.GetValue() != 'Close':
+                self.CreatePort(self.com.GetValue(), platform)
+
+
+    def ChocieBand(self, evt):
+        self.band = evt.GetString()
+        self.bandlimit = self.freqdef.getlimit(self.band)
+        global freq
+        global loss
+        global rfpath
+        global en_losschange
+        freq['UL'] = (self.bandlimit[0]+self.bandlimit[1])/2
+        freq['DL'] = (self.bandlimit[2]+self.bandlimit[3])/2
+        loss.getloss(freq, rfpath)
+        en_losschange = True
+
+        self.dict_freq = {'1.4M' : self.freqdef.getcarrfreqs(self.band, "1.4M"),
+                       '3M' : self.freqdef.getcarrfreqs(self.band, "3M"),
+                       '5M' : self.freqdef.getcarrfreqs(self.band, "5M"),
+                       '10M' : self.freqdef.getcarrfreqs(self.band, "10M"),
+                       '15M' : self.freqdef.getcarrfreqs(self.band, "15M"),
+                       '20M' : self.freqdef.getcarrfreqs(self.band, "20M"),
+                       '200k' : self.freqdef.getcarrfreqs(self.band, "GSM"),
+                       '400k' : self.freqdef.getcarrfreqs(self.band, "400k")
+                       }
+
+        self.carrItemDefault["EnumFreq"] = [self.dict_freq['5M'][0], self.dict_freq['5M']]
+
+
+
+
+
+    def EvtRun(self, event):
+        if self.btn_run.GetLabel() == "Start":
+            if self.ru and self.ru != 'Close':
+                if  not self.ru.IP:
+                    self.ru.close()
+            global en_update
+            en_update = False
+            self.btn_run.SetLabel("Pause")
+            #self.btn_run.Disable()
+            self.btn_stop.Enable()
+            i = self.list.GetSelection()
+            if i in self.item_in:
+                path = self.dirscript + self.item_in[i]
+                ruport = ['RRU', self.ruport + '_' + self.platform]
+                self.script = InstrThread(path, self.inst + ruport + self.rumaport)
+
+        elif self.btn_run.GetLabel() == "Pause":
+            self.script.pause = True
+            self.btn_run.SetLabel("Continue")
+
+        elif self.btn_run.GetLabel() == "Continue":
+            self.script.resume = True
+            self.btn_run.SetLabel("Pause")
+
+
+
+    def EvtStop(self, event):
+        self.script.stop = True
+
+
+    def ScriptDone(self, msg):
+        time.sleep(0.2)
+        if self.ru and self.ru != 'Close' and not self.ru.IP:
+            self.ru.open()
+
+        self.script = None
+        global en_update
+        en_update = True
+        self.btn_run.SetLabel("Start")
+        #self.btn_run.Enable()
+        self.btn_stop.Disable()
+
+
+
+
+    def EvtUpdate(self, event):
+        self.list.Clear()
+        a = self.list.Append("Function")
+        self.UpdateTree()
+
+
+    def UpdateTree(self):
+        self.items = {}
+        self.item_in = {}
+        default_item = None
+        for dirpath, folders, files in os.walk(self.dirscript + '\\'):
+            for ifile in files:
+                if ifile.endswith('.py'):
+                    foldlist = dirpath.replace(self.dirscript + '\\', '').split("\\")
+                    pare = ''
+                    full = ''
+                    if foldlist == ['']:
+                        a = self.list.Append(ifile)
+                        self.item_in[a] = full + "\\" + ifile
+                        #//////////////////????????????????????????????????????
+                        if "test" in ifile:
+                            default_item = a
+                    else:
+                        for item in foldlist:
+                            full = full + "\\" + item
+                            if full in self.items:
+                                pare = self.items[full]
+                            else:
+                                if pare == '':
+                                    pare = self.list.Append(item)
+                                else:
+                                    pare = self.list.Append(item, pare)
+                                self.items[full] = pare
+                        a = self.list.Append(ifile, pare)
+                        self.item_in[a] = full + "\\" + ifile
+        if default_item != None:
+            self.list.SetSelection(default_item)
+
+    def CarrierOn(self, evt):
+        index = self.pg.GetSelectedPage()
+        currpage = self.pg.GetPage(index)
+        currpage.ExpandAll()
+        carrdict = currpage.GetPropertyValues(as_strings=True)
+        carrs = []
+        i = -1
+        for k, v in carrdict.items():
+            if 'EnumBr' in k:
+                carrs.append({k.split('@')[0]: v})
+                i = i+1
+            else:
+                carrs[i][k.split('@')[0]] = v
+        carrier(self.ru, self.ruma).carrOn(carrs)
+
+        currpage.CollapseAll()
+
+    def CarrierRelase(self, evt):
+        carrier(self.ru, self.ruma).carrOff()
+
+    def CarrierNew(self, evt):
+        p = self.pg.GetSelectedProperty()
+        self.carrItemDefault["EnumBr"] = ["A", [chr(65+b) for b in range(self.branchs)]]
+        #self.carrItemCopy["EnumBr"] = ["A", [chr(65+b) for b in range(self.branchs)]]
+        self.carrItemDefault["EnumBr"][1] += [str(self.carrItemDefault["EnumBr"][1]).strip("[\'").strip("\']").replace("\', \'", "")]
+        #self.carrItemCopy["EnumBr"][1] += [str(self.carrItemCopy["EnumBr"][1]).strip("[\'").strip("\']").replace("\', \'", "")]
+        if p:
+            if 'Carrier@' in self.pg.GetPropertyName(p):
+                self.CarrierAddItem(self.carrItemCopy)
+            else:
+                self.CarrierAddItem(self.carrItemDefault)
+        else:
+            self.CarrierAddItem(self.carrItemDefault)
+
+
+    def CarrierDel(self, evt):
+        p = self.pg.GetSelectedProperty()
+        if p:
+            if 'Carrier@' in self.pg.GetPropertyName(p):
+                self.pg.DeleteProperty(p)
+
+
+    def ImportCarr(self, evt):
+        pass
+
+    def ExportCarr(self, evt):
+        pass
+
+
+    def ClearAll(self, evt):
+        class Nothing:
+            def __init__(self):
+                pass
+
+        self.pg.AutoFill(Nothing())
+
+
+
+    def CarrierInit(self):
+        lable = wx.StaticBox(self, -1, "Carrier Setup", (0, 110), (348, 412))
+
+        ## Carrier Buttons********************************************************************************
+
+        self.carron = wx.Button(self.subpanel, wx.ID_ANY, "On", pos=(260, 150), size=(80, -1))
+        self.carroff = wx.Button(self.subpanel, wx.ID_ANY, "Release", pos=(260, 180), size=(80, -1))
+
+        self.carrnew = wx.Button(self.subpanel, wx.ID_ANY, "New", pos=(260, 240), size=(80, -1))
+        self.carrdel = wx.Button(self.subpanel, wx.ID_ANY, "Delete", pos=(260, 270), size=(80, -1))
+
+        self.importstr = wx.Button(self.subpanel, wx.ID_ANY, "Import", pos=(260, 330), size=(80, -1))
+        self.exportstr = wx.Button(self.subpanel, wx.ID_ANY, "Export", pos=(260, 360), size=(80, -1))
+        self.clearall  = wx.Button(self.subpanel, wx.ID_ANY, "Clear", pos=(260, 400), size=(80, -1))
+
+        self.carron.Bind(wx.EVT_BUTTON, self.CarrierOn)
+        self.carroff.Bind(wx.EVT_BUTTON, self.CarrierRelase)
+        self.carrnew.Bind(wx.EVT_BUTTON, self.CarrierNew)
+        self.carrdel.Bind(wx.EVT_BUTTON, self.CarrierDel)
+        self.importstr.Bind(wx.EVT_BUTTON, self.ImportCarr)
+        self.exportstr.Bind(wx.EVT_BUTTON, self.ExportCarr)
+        self.clearall.Bind(wx.EVT_BUTTON, self.ClearAll)
+
+
+
+        ## Carrier Setting List***************************************************************************
+        self.pg = pg = wxpg.PropertyGridManager(self.subpanel, -1, pos = (5, 127), size = (250, 390),
+                                                 style = wxpg.PG_TOOLBAR)
+        #pg.SetBackgroundColour((RED,GREEN,BLUE))
+        pg.SetExtraStyle(wxpg.PG_EX_HELP_AS_TOOLTIPS)
+
+        pg.Bind( wxpg.EVT_PG_CHANGED, self.OnPropGridChange )
+        #pg.Bind( wxpg.EVT_PG_PAGE_CHANGED, self.OnPropGridPageChange )
+        pg.Bind( wxpg.EVT_PG_SELECTED, self.OnPropGridSelect )
+
+
+        for ii in range(10):
+            pg.AddPage("Carrier Setting " + str(ii+1))
+
+        self.dict_bw = {'LTE_FDD':['5M', '10M', '15M', '20M','1.4M', '3M'],
+                       'LTE_TDD':['5M', '10M', '15M', '20M'],
+                       'GSM':['200k'],
+                       'NBiot':['400k']}
+        self.dict_freq = {'1.4M' : self.freqdef.getcarrfreqs(self.band, "1.4M"),
+                       '3M' : self.freqdef.getcarrfreqs(self.band, "3M"),
+                       '5M' : self.freqdef.getcarrfreqs(self.band, "5M"),
+                       '10M' : self.freqdef.getcarrfreqs(self.band, "10M"),
+                       '15M' : self.freqdef.getcarrfreqs(self.band, "15M"),
+                       '20M' : self.freqdef.getcarrfreqs(self.band, "20M"),
+                       '200k' : self.freqdef.getcarrfreqs(self.band, "GSM"),
+                       '400k' : self.freqdef.getcarrfreqs(self.band, "400k")
+                       }
+        self.dict_mod = {'LTE_FDD':['TM3.1', 'TM3.1a', 'TM2', 'TM2a'],
+                       'LTE_TDD':['TM3.1', 'TM3.1a', 'TM2', 'TM2a'],
+                       'GSM':['GMSK', '8PSK'],
+                       'NBiot':['????']}
+        self.dict_dg = {'LTE_FDD':["None"],
+                       'LTE_TDD':['None'],
+                       'GSM':['None', '0F0F0F0F', '6F6F6F6F'],
+                       'NBiot':['None']}
+
+        self.carrItemDefault = { "EnumBr"   : ["A", [chr(65+b) for b in range(self.branchs)]],
+                                 "EnumRat"  : ["LTE_FDD", ['LTE_FDD', 'LTE_TDD', 'GSM', 'NBiot', 'NR']],
+                                 "EnumBw"   : ["5M", self.dict_bw['LTE_FDD']],
+                                 "EnumDir"  : ["Duplex", ['DL', 'UL', 'Duplex']],
+                                 "EnumFreq" : [self.dict_freq['5M'][0], self.dict_freq['5M']],
+                                 "EnumPow"  : ["Auto", ['Auto', '80W', '60W', '40W', '20W']],
+                                 "EnumMod"  : [self.dict_mod['LTE_FDD'][0], self.dict_mod['LTE_FDD']],
+                                 "EnumGain" : ['0.0', []],
+                                 "EnumDg"   : [self.dict_dg['LTE_FDD'][0], self.dict_dg['LTE_FDD']],
+                                 "EnumCpriPort" : ["0", ['0', '1']]
+                                 }
+        self.carrItemCopy = { "EnumBr"   : ["A", [chr(65+b) for b in range(self.branchs)]],
+                             "EnumRat"  : ["LTE_FDD", ['LTE_FDD', 'LTE_TDD', 'GSM', 'NBiot', 'NR']],
+                             "EnumBw"   : ["5M", self.dict_bw['LTE_FDD']],
+                             "EnumDir"  : ["Duplex", ['DL', 'UL', 'Duplex']],
+                             "EnumFreq" : [self.dict_freq['5M'][0], self.dict_freq['5M']],
+                             "EnumPow"  : ["Auto", ['Auto', '80W', '60W', '40W', '20W']],
+                             "EnumMod"  : [self.dict_mod['LTE_FDD'][0], self.dict_mod['LTE_FDD']],
+                             "EnumGain" : ['0.0', []],
+                             "EnumDg"   : [self.dict_dg['LTE_FDD'][0], self.dict_dg['LTE_FDD']],
+                             "EnumCpriPort" : ["0", ['0', '1']]
+                             }
+
+        self.carrItemDefault["EnumBr"][1] += [str(self.carrItemDefault["EnumBr"][1]).strip("[\'").strip("\']").replace("\', \'", "")]
+        self.carrItemCopy["EnumBr"][1] += [str(self.carrItemCopy["EnumBr"][1]).strip("[\'").strip("\']").replace("\', \'", "")]
+
+        self.CarrierAddItem(self.carrItemDefault)
+
+
+    def CarrierAddItem(self, carr):
+        i = 1
+        while True:
+            if self.pg.GetPropertyByName('Carrier@'+str(i)) != None:
+                i = i + 1
+            else:
+                namedef ={"EnumBr"   :  "Branch",
+                          "EnumRat"  :  "RAT",
+                          "EnumBw"   :  "Band Width",
+                          "EnumDir"  :  "Direction",
+                          "EnumFreq" :  "Frequency (MHz)",
+                          "EnumPow"  :  "Power (W,-dB)",
+                          "EnumMod"  :  "MODulation",
+                          "EnumGain" :  "CT10 Gain (dB)",
+                          "EnumDg"   :  "Dynamic Gain",
+                          "EnumCpriPort" : "CPRI Port"}
+
+                c1 = self.pg.Append(wxpg.PropertyCategory("Carrier@"+ str(i)))
+                c1.SetLabel(self.GenCarrStr(carr))
+                #c1.SetLabel(carr['EnumBr'][0] + '_' + carr['EnumBr'][0] + '_' + carr['EnumFreq'][0])
+
+                for iprty, chs in carr.items():
+                    if iprty == "EnumBr" or iprty == "EnumFreq" or iprty == "EnumPow" or iprty == "EnumDg":
+                        self.pg.Append(wxpg.EditEnumProperty(namedef[iprty], iprty + '@' + str(i),
+                                                             chs[1],
+                                                             list(range(0,len(chs[1]))),
+                                                             chs[0]))
+                    elif iprty == "EnumGain":
+                        self.pg.Append(wxpg.FloatProperty(namedef[iprty], iprty + '@' + str(i), value=float(chs[0])))
+                    else:
+                        self.pg.Append(wxpg.EnumProperty(namedef[iprty], iprty + '@' + str(i),
+                                                         chs[1],
+                                                         list(range(0, len(chs[1]))),
+                                                         chs[1].index(chs[0])))
+                break
+
+    def GenCarrStr(self, carr):
+        br = carr['EnumBr'][0]
+        freq = str(float(carr['EnumFreq'][0]))
+
+        if carr['EnumRat'][0] == 'LTE_FDD':
+            rat = 'L' + str(int(float(carr['EnumBw'][0].strip('M'))*10))
+        elif carr['EnumRat'][0] == 'LTE_TDD':
+            rat = 'T' + str(int(float(carr['EnumBw'][0].strip('M'))*10))
+        elif carr['EnumRat'][0] == 'GSM':
+            rat = 'G'
+            freq = str(float(carr['EnumFreq'][0].split('_')[0]))
+        elif carr['EnumRat'][0] == 'NBiot':
+            rat = 'NBiot'
+        elif carr['EnumRat'][0] == 'NR':
+            return "not support"
+
+
+
+        if carr['EnumDir'][0] == 'Duplex':
+            dir = 'Dud'
+        elif carr['EnumDir'][0] == 'UL':
+            dir = 'Du'
+        elif carr['EnumDir'][0] == 'DL':
+            dir = 'Dd'
+
+        pow = '' if carr['EnumPow'][0] == 'Auto' else carr['EnumPow'][0]
+
+        mod = carr['EnumMod'][0]
+
+        result = ''
+
+        for na in [br, rat, freq, dir, pow, mod]:
+            if na != '':
+                result = result + '_' + na
+
+        return result.strip('_')
+
+
+    def OnPropGridChange(self, event):
+        p = event.GetProperty()
+        changestr = False
+        if p:
+            if 'EnumRat' in p.GetName():
+                rat_c = p.GetValueAsString()
+                #index = self.pg.GetSelectedPage()
+                #currpage = self.pg.GetPage(index)
+
+                bw_obj = self.pg.GetPropertyByName(p.GetName().replace('EnumRat', 'EnumBw'))
+                bw_obj.SetChoices(wxpg.PGChoices(self.dict_bw[rat_c], [i for i in range(len(self.dict_bw[rat_c]))]))
+
+                dir_c = self.pg.GetPropertyByName(p.GetName().replace('EnumRat', 'EnumDir')).GetValueAsString()
+                bw_c = self.dict_bw[rat_c][0]
+                freqls = []
+                if dir_c == "UL" and 'TDD' not in rat_c:
+                    for b in self.dict_freq[bw_c]:
+                        freqls.append(str(round(float(b)-self.bandlimit[-1], 1)))
+                else:
+                    freqls = self.dict_freq[bw_c]
+                freq_obj = self.pg.GetPropertyByName(p.GetName().replace('EnumRat', 'EnumFreq'))
+                freq_obj.SetChoices(wxpg.PGChoices(freqls, [i for i in range(len(freqls))]))
+                freq_obj.SetValueFromString(freqls[0])
+
+
+                mod_obj = self.pg.GetPropertyByName(p.GetName().replace('EnumRat', 'EnumMod'))
+                mod_obj.SetChoices(wxpg.PGChoices(self.dict_mod[rat_c], [i for i in range(len(self.dict_mod[rat_c]))]))
+
+                dg_obj = self.pg.GetPropertyByName(p.GetName().replace('EnumRat', 'EnumDg'))
+                dg_obj.SetChoices(wxpg.PGChoices(self.dict_dg[rat_c], [i for i in range(len(self.dict_dg[rat_c]))]))
+                dg_obj.SetValueFromString("None")
+            elif 'EnumBw' in p.GetName():
+                bw_c = p.GetValueAsString()
+
+                dir_c = self.pg.GetPropertyByName(p.GetName().replace('EnumBw', 'EnumDir')).GetValueAsString()
+                rat_c = self.pg.GetPropertyByName(p.GetName().replace('EnumBw', 'EnumRat')).GetValueAsString()
+
+                freqls = []
+                if dir_c == "UL" and 'TDD' not in rat_c:
+                    for b in self.dict_freq[bw_c]:
+                        freqls.append(str(round(float(b)-self.bandlimit[-1], 1)))
+                else:
+                    freqls = self.dict_freq[bw_c]
+                freq_obj = self.pg.GetPropertyByName(p.GetName().replace('EnumBw', 'EnumFreq'))
+                freq_obj.SetChoices(wxpg.PGChoices(freqls, [i for i in range(len(freqls))]))
+                freq_obj.SetValueFromString(freqls[0])
+
+            elif 'EnumDir' in p.GetName():
+                dir_c = p.GetValueAsString()
+                rat_c = self.pg.GetPropertyByName(p.GetName().replace('EnumDir', 'EnumRat')).GetValueAsString()
+                bw_c = self.pg.GetPropertyByName(p.GetName().replace('EnumDir', 'EnumBw')).GetValueAsString()
+
+                freqls = []
+                if dir_c == "UL" and 'TDD' not in rat_c:
+                    for b in self.dict_freq[bw_c]:
+                        freqls.append(str(round(float(b)-self.bandlimit[-1], 1)))
+                else:
+                    freqls = self.dict_freq[bw_c]
+                freq_obj = self.pg.GetPropertyByName(p.GetName().replace('EnumDir', 'EnumFreq'))
+                freq_obj.SetChoices(wxpg.PGChoices(freqls, [i for i in range(len(freqls))]))
+                freq_obj.SetValueFromString(freqls[0])
+
+            carr = self.carrItemCopy
+            for k, v in carr.items():
+                prp = self.pg.GetPropertyByName(k + '@' +p.GetName().split('@')[1])
+                carr[k][0] = prp.GetValueAsString()
+            c1 = self.pg.GetPropertyByName('Carrier@' +p.GetName().split('@')[1])
+            c1.SetLabel(self.GenCarrStr(carr))
+
+
+    def OnPropGridSelect(self, event):
+        p = event.GetProperty()
+        if p:
+            if 'Carrier@' in self.pg.GetPropertyName(p):
+                index = self.pg.GetSelectedPage()
+                currpage = self.pg.GetPage(index)
+                currpage.CollapseAll()
+                currpage.Expand(p)
+                car = currpage.GetPropertyValues(as_strings=True)
+
+                rat_c = 'LTE_FDD'
+                bw_c = ''
+                for k, v in car.items():
+                    self.carrItemCopy[k.split('@')[0]][0] = v
+                    if 'EnumRat' in k:
+                        rat_c = v
+                    elif 'EnumBw' in k:
+                        self.carrItemCopy[k.split('@')[0]][1] = self.dict_bw[rat_c]
+                        bw_c = v
+                    elif 'EnumFreq' in k:
+                        self.carrItemCopy[k.split('@')[0]][1] = self.dict_freq[bw_c]
+                    elif 'EnumMod' in k:
+                        self.carrItemCopy[k.split('@')[0]][1] = self.dict_mod[rat_c]
+                    elif 'EnumDg' in k:
+                        self.carrItemCopy[k.split('@')[0]][1] = self.dict_dg[rat_c]
+
+
+
+class PsuThread(Thread):
+    def __init__(self, psuP):
+        """Init Worker Thread Class."""
+        Thread.__init__(self)
+        self.psuP = psuP
+        self.setDaemon(True)
+        self.stop = False
+        self.start()  # start the thread
+        self.stop = False
+
+    def run(self):
+        while not self.stop:
+            if en_update:
+                time.sleep(0.5)
+                threadLock.acquire()
+                try:
+                    result = 0
+                    result = self.psuP.psu.GetVoltCurr()
+                except:
+                    pass
+                threadLock.release()
+                wx.CallAfter(pub.sendMessage, "updatedc", msg=[result, self.psuP])
+
+
+
+class PmThread(Thread):
+    def __init__(self, pmP):
+        """Init Worker Thread Class."""
+        Thread.__init__(self)
+        self.pmP = pmP
+        self.setDaemon(True)
+        self.stop = False
+        self.start()  # start the thread
+        self.stop = False
+
+    def run(self):
+        while not self.stop:
+            if en_update:
+                time.sleep(0.5)
+                threadLock.acquire()
+                try:
+                    result = self.pmP.pm.MeasNoTrig(self.pmP.sensors)
+                    loss = self.pmP.pm.GetLoss()
+                except:
+                    pass
+                threadLock.release()
+                wx.CallAfter(pub.sendMessage, "updatepower", msg=[result, self.pmP, loss])
+
+
+
+class InstrThread(Thread):
+    def __init__(self, path, addr):
+        """Init Worker Thread Class."""
+        Thread.__init__(self)
+        self.path = path
+        self.addr = addr
+        self.setDaemon(True)
+        self.stop = False
+        self.pause = False
+        self.resume = False
+        self.p = None
+        self.start()  # start the thread
+        self.stop = False
+        self.pause = False
+        self.resume = False
+
+
+    def Finsh(self):
+        self.stop = False
+        wx.CallAfter(pub.sendMessage, "ScriptDone", msg="done")
+
+    def run(self):
+        self.p = subprocess.Popen(["python", self.path] + self.addr)
+        print (self.p.pid)
+        pt = psutil.Process(self.p.pid)
+        while self.p.poll() == None:
+            if self.stop:
+                self.p.terminate()
+                break
+            elif self.pause:
+                pt.suspend()
+                self.pause = False
+            elif self.resume:
+                pt.resume()
+                self.resume = False
+
+
+
+        self.Finsh()
+
+        #threadLock.acquire()
+        # addr is a list['SA','address', 'SG','address1','address2']
+        #subprocess.run(["python", self.path] + self.addr)
+        #threadLock.release()
+
+
+
+
+
+
+
+class MainFrame(wx.Frame):
+
+    def __init__(self, parent, id=wx.ID_ANY, title="", pos=wx.DefaultPosition,
+                 size=(FRAME_WIDTH, FRAME_HEIGHT), style=wx.DEFAULT_FRAME_STYLE):
+        style = wx.MINIMIZE_BOX | wx.CAPTION | wx.CLOSE_BOX | wx.CLIP_CHILDREN
+        wx.Frame.__init__(self, parent, id, title, pos, size, style)
+
+        self._flags = 0
+        self._pnl = 0
+        # //set icon to main frame
+        self.icon = wx.Icon('Lib/ico.ico', wx.BITMAP_TYPE_ICO)
+        self.SetIcon(self.icon)
+        self.SetBackgroundColour((RED,GREEN,BLUE))
+
+        # //set status bar
+        self.statusbar = self.CreateStatusBar(1)
+        self.statusbar.SetStatusText("Guang Liang G @ 24 Feb 2018", 0)
+        #self.statusbar.SetForegroundColour((RED,GREEN,BLUE))
+
+        #scan instrument and create
+        self.CreateInst()
+        self.CableLossInit()
+        # //add fold panel for every instrument
+        self.CreateFoldPanel(fpb.FPB_VERTICAL)
+
+
+
+    # -------------------PSU thread reading------------------------
+    ## PSU power Volt&Curr open thread for read Volt&Curr
+    def PsuUpdateEnable(self, event):
+        if not event.GetFoldStatus():
+            self.psuThreadList[event.GetEventObject().GetParent()] = PsuThread(self.psuList[event.GetEventObject().GetParent()])
+        else:
+            self.psuThreadList[event.GetEventObject().GetParent()].stop = True
+        event.Skip()
+    ## recieve result from PSU GPIB read, and update to GUI
+    def PsuUpdate(self, msg):
+        msg[1].UpdatePower(msg[0])
+    # -------------------------------------------------------------
+
+
+    # -------------------PM thread reading------------------------
+    ##  open thread for read Power
+    def PmUpdateEnable(self, event):
+        if not event.GetFoldStatus():
+            self.pmThreadList[event.GetEventObject().GetParent()] = PmThread(self.pmList[event.GetEventObject().GetParent()])
+        else:
+            self.pmThreadList[event.GetEventObject().GetParent()].stop = True
+        event.Skip()
+    ## recieve result from PM GPIB read, and update to GUI
+    def PmUpdate(self, msg):
+        msg[1].UpdatePower(msg[0], msg[2])
+    # -------------------------------------------------------------
+
+
+    def CreateFoldPanel(self, fpb_flags):
+        # recreate the foldpanelbar
+
+        self._pnl = fpb.FoldPanelBar(self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize,
+                                     agwStyle=fpb_flags)
+
+        Images = wx.ImageList(16, 16)
+        Images.Add(GetExpandedIconBitmap())
+        Images.Add(GetCollapsedIconBitmap())
+
+        self.psuList={}
+        self.psuThreadList={}
+        self.pmList={}
+        self.pmThreadList = {}
+        ####  1 ============ PSU
+        for psu in self.psu:
+            self.item_psu = self._pnl.AddFoldPanel("Power Supply : "+psu.model+" ["+ psu.addr.rstrip("::INSTR").rstrip("::inst0")+"]", collapsed=True, foldIcons=Images)
+            self.psupanel = PsuPanel(self.item_psu, wx.ID_ANY, frame_parent=self, psu_i = psu)
+            self._pnl.AddFoldPanelWindow(self.item_psu, self.psupanel, fpb.FPB_ALIGN_WIDTH, 2)
+            self.psuList[self.item_psu] = self.psupanel
+            self.item_psu.Bind(fpb.EVT_CAPTIONBAR, self.PsuUpdateEnable)
+            pub.subscribe(self.PsuUpdate, "updatedc")
+
+            ####  3 ============ PM
+        for pm in self.pm:
+            self.item_pm = self._pnl.AddFoldPanel("Power Meter : "+pm.model+" ["+ pm.addr.rstrip("::INSTR").rstrip("::inst0")+"]", True, foldIcons=Images)
+            extra = 0
+            if self.pm.index(pm)>0:
+                for i in range(self.pm.index(pm)+1):
+                    extra = extra + self.pm[i].channels - 1
+            self.pmpanel = PmPanel(self.item_pm, wx.ID_ANY, frame_parent=self, pm_i = pm, index = self.pm.index(pm)+extra)
+            self._pnl.AddFoldPanelWindow(self.item_pm, self.pmpanel, fpb.FPB_ALIGN_WIDTH, 2)
+            self.pmList[self.item_pm] = self.pmpanel
+            self.item_pm.Bind(fpb.EVT_CAPTIONBAR, self.PmUpdateEnable)
+            pub.subscribe(self.PmUpdate, "updatepower")
+
+        ####  4 ============ SA
+        for sa in self.sa:
+            self.item_sa = self._pnl.AddFoldPanel("Signal Analyzer : "+sa.model+" ["+ sa.addr.rstrip("::INSTR").rstrip("::inst0")+"]", collapsed=True, foldIcons=Images)
+            self.sapanel = SaPanel(self.item_sa, wx.ID_ANY, frame_parent=self, sa_i = sa, index = self.sa.index(sa))
+            self._pnl.AddFoldPanelWindow(self.item_sa, self.sapanel, fpb.FPB_ALIGN_WIDTH, 2)
+
+
+        ####  5 ============ SG
+        for sg in self.sg:
+            extra = 0
+            if self.sg.index(sg)>0:
+                for i in range(self.sg.index(sg)+1):
+                    extra = extra + self.sg[i].branchs - 1
+            self.item_sg = self._pnl.AddFoldPanel("Signal Generator : "+sg.model+" ["+ sg.addr.rstrip("::INSTR").rstrip("::inst0")+"]", True, foldIcons=Images)
+            self.sgpanel = SgPanel(self.item_sg, wx.ID_ANY, frame_parent=self, sg_i = sg, index = self.sg.index(sg)+extra)
+            self._pnl.AddFoldPanelWindow(self.item_sg, self.sgpanel, fpb.FPB_ALIGN_WIDTH, 2)
+
+        ####  6 ============ OSC
+        for osc in self.osc:
+            self.item_osc = self._pnl.AddFoldPanel("Oscilloscope : "+osc.model+" ["+ osc.addr.rstrip("::INSTR").rstrip("::inst0")+"]", collapsed=True, foldIcons=Images)
+            self.oscpanel = OscPanel(self.item_osc, wx.ID_ANY, frame_parent=self, osc_i = osc, index = self.osc.index(osc))
+            self._pnl.AddFoldPanelWindow(self.item_osc, self.oscpanel, fpb.FPB_ALIGN_WIDTH, 2)
+
+
+
+        ####  2 ============ SW SwPanel
+        for sw in self.sw:
+            self.item_sw = self._pnl.AddFoldPanel("Swtich Box : "+sw.model+" ["+ sw.addr.rstrip("::INSTR").rstrip("::inst0")+"]", True, foldIcons=Images)
+            self.swpanel = SwPanel(self.item_sw, wx.ID_ANY, frame_parent=self, sw_i = sw)
+            self._pnl.AddFoldPanelWindow(self.item_sw, self.swpanel, fpb.FPB_ALIGN_WIDTH, 2)
+
+
+        ####  66666666666
+        self.item_test = self._pnl.AddFoldPanel("Automation&Control Test", False, foldIcons=Images)
+        self.testpanel = AutoPanel(self.item_test, wx.ID_ANY, frame_parent=self, inst=self.instDict)
+        self._pnl.AddFoldPanelWindow(self.item_test, self.testpanel, fpb.FPB_ALIGN_WIDTH, 2)
+
+
+    def CreateInst(self):
+        inst = mgr()
+        self.instDict = {}
+        try:
+            self.psu = []
+            self.psu = inst.getPSU()
+            if isinstance(self.psu, (list)):
+                rd = ChoiceInst(self, message="Power Sulpply:", title="Please choice the instrument",
+                                order=range(len(self.psu)), items=[i.addr + "_" + i.model for i in self.psu])
+
+                if rd.ShowModal() == wx.ID_OK:
+                    order = rd.GetOrder()
+                    temp = []
+                    for i in order:
+                        if i > -1:
+                            temp.append(self.psu[i])
+                    self.psu = temp
+                self.instDict['PSU'] = [ i.addr for i in self.psu]
+            else:
+                self.instDict['PSU'] = [self.psu.addr]
+                self.psu = [self.psu]
+        except myError as e:
+            print(e.args)
+
+        try:
+            self.pm = []
+            self.pm = inst.getPM()
+            if isinstance(self.pm, (list)):
+                rd = ChoiceInst(self, message="Power Meter:", title="Please choice the instrument",
+                                order=range(len(self.pm)), items=[i.addr + "_" + i.model for i in self.pm])
+
+                if rd.ShowModal() == wx.ID_OK:
+                    order = rd.GetOrder()
+                    temp = []
+                    for i in order:
+                        if i > -1:
+                            temp.append(self.pm[i])
+                    self.pm = temp
+                self.instDict['PM'] = [i.addr for i in self.pm]
+            else:
+                self.instDict['PM'] = [self.pm.addr]
+                self.pm = [self.pm]
+        except myError as e:
+            print(e.args)
+
+        try:
+            self.sa = []
+            self.sa = inst.getSA()
+            if isinstance(self.sa, (list)):
+                rd = ChoiceInst(self, message="Signal Analyzer:", title="Please choice the instrument",
+                                order=range(len(self.sa)), items=[i.addr + "_" + i.model for i in self.sa])
+
+                if rd.ShowModal() == wx.ID_OK:
+                    order = rd.GetOrder()
+                    temp = []
+                    for i in order:
+                        if i > -1:
+                            temp.append(self.sa[i])
+                    self.sa = temp
+                self.instDict['SA'] = [i.addr for i in self.sa]
+            else:
+                self.instDict['SA'] = [self.sa.addr]
+                self.sa = [self.sa]
+
+        except myError as e:
+            print(e.args)
+
+        try:
+            self.sg = []
+            self.sg = inst.getSG()
+            if isinstance(self.sg, (list)):
+                rd = ChoiceInst(self, message="Signal Generator:", title="Please choice the instrument",
+                                order=range(len(self.sg)), items=[i.addr + "_" + i.model for i in self.sg])
+
+                if rd.ShowModal() == wx.ID_OK:
+                    order = rd.GetOrder()
+                    temp = []
+                    for i in order:
+                        if i > -1:
+                            temp.append(self.sg[i])
+                    self.sg = temp
+                self.instDict['SG'] = [i.addr for i in self.sg]
+            else:
+                self.instDict['SG'] = [self.sg.addr]
+                self.sg = [self.sg]
+        except myError as e:
+            print(e.args)
+
+
+        try:
+            self.osc = []
+            self.osc = inst.getOSC()
+            if isinstance(self.osc, (list)):
+                rd = ChoiceInst(self, mesoscge="Oscilloscope:", title="Please choice the instrument",
+                                order=range(len(self.osc)), items=[i.addr + "_" + i.model for i in self.osc])
+
+                if rd.ShowModal() == wx.ID_OK:
+                    order = rd.GetOrder()
+                    temp = []
+                    for i in order:
+                        if i > -1:
+                            temp.append(self.osc[i])
+                    self.osc = temp
+                self.instDict['OSC'] = [i.addr for i in self.osc]
+            else:
+                self.instDict['OSC'] = [self.osc.addr]
+                self.osc = [self.osc]
+
+        except myError as e:
+            print(e.args)
+
+        try:
+            self.sw = []
+            self.sw = inst.getSW()
+            if isinstance(self.sw, (list)):
+                rd = ChoiceInst(self, message="Swtich Box:", title="Please choice the instrument",
+                                order=range(len(self.sw)), items=[i.addr + "_" + i.model for i in self.sw])
+
+                if rd.ShowModal() == wx.ID_OK:
+                    order = rd.GetOrder()
+                    temp = []
+                    for i in order:
+                        if i > -1:
+                            temp.append(self.sw[i])
+                    self.sw = temp
+                self.instDict['SW'] = [i.addr for i in self.sw]
+            else:
+                self.instDict['SW'] = [self.sw.addr]
+                self.sw = [self.sw]
+        except myError as e:
+            print(e.args)
+
+
+    def CableLossInit(self):
+        global loss
+        for name, devls in self.instDict.items():
+            if name == 'SA' or name == 'OSC':
+                loss.init(name, len(devls))
+            elif name == 'SG':
+                total = 0
+                for i in self.sg:
+                    total = total + i.GetPorts()
+                loss.init(name, total)
+            elif name == 'SW':
+                loss.init(name, self.sw[0].ports)
+            elif name == 'PM':
+                loss.init(name, self.pm[0].GetSensors())
+        loss.reload(4)
+
+
+
+class ChoiceInst(wx.RearrangeDialog):
+    def __init__(self, parent, message, title, order, items):
+        wx.RearrangeDialog.__init__(self, parent, message, title, order, items)
+        panel = wx.Panel(self)
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.lc = self.GetList()
+        self.lenItems = len(items)
+
+
+        panel.SetSizer(sizer)
+        self.AddExtraControls(panel)
+
+
+
+# ---------------------------------------------------------------------------
+class App(wx.App):
+    def OnInit(self):
+        FRAME_WIDTH = 368
+        FRAME_HEIGHT = 768
+        if wx.DisplaySize()[1] <= 768:
+            FRAME_HEIGHT = 768 - 60
+        else:
+            FRAME_HEIGHT = round(wx.DisplaySize()[1]*0.74)
+            #FRAME_HEIGHT = 800
+        self.frame = MainFrame(parent=None, title='RadioKit', pos=(50, 20), size=(FRAME_WIDTH, FRAME_HEIGHT))
+        self.frame.Show()
+        self.SetTopWindow(self.frame)
+
+        return True
+
+
+
+def main():
+    app = App()
+    app.MainLoop()
+
+
+
+if __name__ == '__main__':
+    main()
