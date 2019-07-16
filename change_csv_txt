@@ -1,0 +1,26 @@
+#读入
+import datetime
+with open("TRACE02.csv") as fo:
+    ls = []
+    for lines in fo:
+        if "Channel" in lines:
+            continue
+        elif "Trace" in lines:
+            continue
+        elif "Freq" in lines:
+            continue
+        lines = lines.split(",")
+        lines = lines[0:2]
+        lines[0] = str(round(eval(lines[0]), 2))
+        lines[1] = str(round(eval(lines[1]), 2))
+        ls.append(list(lines))
+
+ti = datetime.datetime.now()
+#写线损
+with open("101.txt", "w") as fr:
+    fr.write("Calibration data for signal path:\n")
+    fr.write("-------------------------------------------\n")
+    fr.write("{}\n".format(ti))
+    fr.write("-------------------------------------------\n")
+    for line in ls:
+        fr.write("(" + ", ".join(line) + ")\n")
